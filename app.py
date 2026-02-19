@@ -37,6 +37,10 @@ def init_db():
             username VARCHAR(50) UNIQUE NOT NULL,
             password_hash VARCHAR(100) NOT NULL
         );
+    CREATE TABLE IF NOT EXISTS tokens (
+        token VARCHAR(100) PRIMARY KEY,
+        username VARCHAR(50) REFERENCES users(username)
+    );
     ''')
     conn.commit()
     cur.close()
@@ -81,7 +85,17 @@ def register():
         return jsonify({"error": "User already exists"}), 409
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
+    
+def get_user_from_token(token):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT username FROM tokens WHERE token = %s", (token,))
+    result = cur.fetchone()
+    cur.close()
+    conn.close()
+    if result:
+        return result[0] # Return the username
+    return None
 # 2. LOGIN
 @app.route('/login', methods=['POST'])
 def login():
@@ -104,18 +118,15 @@ def login():
 
     stored_hash = result[0]
     
-    # --- THE FIX ---
-    # bcrypt.checkpw requires BYTES for both arguments.
-    # We encode the password typed by the user.
-    # We encode the hash retrieved from the database.
     try:
+        # Check password
         if bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8')):
-            # GENERATE A TOKEN (Simple Example)
-            # In a real app, use JWT or UUID
-            import secrets
-            token = secrets.token_hex(16) 
             
-            # Ideally, save this token to a 'tokens' table in DB here
+            # --- JWT TOKEN GENERATION (No Database needed) ---
+            token = jwt.encode({
+                'user': username,
+                'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
+            }, app.config['SECRET_KEY'], algorithm="HS256")
             
             return jsonify({"status": "success", "token": token}), 200
         else:
@@ -123,12 +134,12 @@ def login():
     except Exception as e:
         print(f"Error checking password: {e}")
         return jsonify({"error": "Server error"}), 500
-
 # --- FILE ENDPOINTS ---
 
 # 3. PUSH (Upload)
 @app.route('/push', methods=['POST'])
 def push_file():
+    # 1. Extract Token
     token = None
     if 'Authorization' in request.headers:
         auth_header = request.headers['Authorization']
@@ -138,21 +149,29 @@ def push_file():
     if not token:
         return jsonify({"error": "Token is missing"}), 401
 
+    # 2. Verify Token
     try:
+        # Decode the token using the secret key
         data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
         current_user = data['user']
-    except:
+    except jwt.ExpiredSignatureError:
+        return jsonify({"error": "Token has expired"}), 401
+    except jwt.InvalidTokenError:
         return jsonify({"error": "Token is invalid"}), 401
+    except Exception as e:
+        return jsonify({"error": f"Authentication failed: {str(e)}"}), 401
     
+    # 3. Check File Presence
     if 'file' not in request.files:
         return jsonify({"error": "No file"}), 400
 
     file = request.files['file']
-    author = request.form.get('author', 'anonymous')
     
-    if author != current_user:
-        return jsonify({"error": "Unauthorized: Author mismatch"}), 403
-
+    # 4. Handle Author/Username
+    # We trust the token, not the form data.
+    # The CLI might send 'author' in form data, but we ignore it to prevent spoofing.
+    author = current_user
+    
     folder = request.form.get('folder', '') # Optional subfolder
 
     if file.filename == '':
