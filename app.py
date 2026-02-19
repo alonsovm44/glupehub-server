@@ -37,10 +37,6 @@ def init_db():
             username VARCHAR(50) UNIQUE NOT NULL,
             password_hash VARCHAR(100) NOT NULL
         );
-    CREATE TABLE IF NOT EXISTS tokens (
-        token VARCHAR(100) PRIMARY KEY,
-        username VARCHAR(50) REFERENCES users(username)
-    );
     ''')
     conn.commit()
     cur.close()
@@ -123,10 +119,16 @@ def login():
         if bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8')):
             
             # --- JWT TOKEN GENERATION (No Database needed) ---
+
+                        # --- JWT TOKEN GENERATION (No Database needed) ---
             token = jwt.encode({
                 'user': username,
                 'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
             }, app.config['SECRET_KEY'], algorithm="HS256")
+
+             # FIX: Ensure token is a string (Python 3.9+ returns bytes)
+            if isinstance(token, bytes):
+                token = token.decode('utf-8')
             
             return jsonify({"status": "success", "token": token}), 200
         else:
