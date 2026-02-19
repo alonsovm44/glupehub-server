@@ -1,4 +1,4 @@
-# Force rebuild v2
+# Force rebuild v3
 Flask
 flask-cors
 psycopg2-binary
