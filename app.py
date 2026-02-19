@@ -82,12 +82,15 @@ def register():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# 2. LOGIN (Returns success if password matches)
+# 2. LOGIN
 @app.route('/login', methods=['POST'])
 def login():
     data = request.json
     username = data.get('username')
     password = data.get('password')
+
+    if not username or not password:
+        return jsonify({"error": "Missing fields"}), 400
 
     conn = get_db_connection()
     cur = conn.cursor()
@@ -100,14 +103,26 @@ def login():
         return jsonify({"error": "User not found"}), 404
 
     stored_hash = result[0]
-    if bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8')):
-        token = jwt.encode({
-            'user': username,
-            'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
-        }, app.config['SECRET_KEY'], algorithm="HS256")
-        return jsonify({"status": "success", "token": token}), 200
-    else:
-        return jsonify({"error": "Invalid password"}), 401
+    
+    # --- THE FIX ---
+    # bcrypt.checkpw requires BYTES for both arguments.
+    # We encode the password typed by the user.
+    # We encode the hash retrieved from the database.
+    try:
+        if bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8')):
+            # GENERATE A TOKEN (Simple Example)
+            # In a real app, use JWT or UUID
+            import secrets
+            token = secrets.token_hex(16) 
+            
+            # Ideally, save this token to a 'tokens' table in DB here
+            
+            return jsonify({"status": "success", "token": token}), 200
+        else:
+            return jsonify({"error": "Invalid password"}), 401
+    except Exception as e:
+        print(f"Error checking password: {e}")
+        return jsonify({"error": "Server error"}), 500
 
 # --- FILE ENDPOINTS ---
 
