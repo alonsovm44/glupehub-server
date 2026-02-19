@@ -146,7 +146,7 @@ def login():
         print(f"Error checking password: {e}")
         return jsonify({"error": f"Server error: {str(e)}"}), 500
     
-# --- FILE ENDPOINTS ---
+# --- FILE ENDPOINTS --- 
 
 # 3. PUSH (Upload)
 @app.route('/push', methods=['POST'])
