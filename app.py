@@ -94,6 +94,8 @@ def get_user_from_token(token):
         return result[0] # Return the username
     return None
 # 2. LOGIN
+# REPLACE YOUR login FUNCTION WITH THIS:
+
 @app.route('/login', methods=['POST'])
 def login():
     data = request.json
@@ -117,26 +119,33 @@ def login():
     
     try:
         # Check password
+        # Ensure input is bytes for bcrypt
         if bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8')):
             
-            # --- JWT TOKEN GENERATION (No Database needed) ---
-
-                        # --- JWT TOKEN GENERATION (No Database needed) ---
-            token = jwt.encode({
+            # --- JWT TOKEN GENERATION ---
+            payload = {
                 'user': username,
                 'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
-            }, app.config['SECRET_KEY'], algorithm="HS256")
+            }
+            
+            token = jwt.encode(payload, app.config['SECRET_KEY'], algorithm="HS256")
 
-             # FIX: Ensure token is a string (Python 3.9+ returns bytes)
+            # PyJWT v2+ returns a string, but older versions returned bytes.
             if isinstance(token, bytes):
                 token = token.decode('utf-8')
             
             return jsonify({"status": "success", "token": token}), 200
         else:
             return jsonify({"error": "Invalid password"}), 401
+            
+    except ValueError as ve:
+        # This catches "Invalid salt" if the DB hash is corrupted/not bcrypt
+        print(f"Bcrypt Error: {ve}")
+        return jsonify({"error": "Database integrity error (Bad Hash)"}), 500
     except Exception as e:
         print(f"Error checking password: {e}")
-        return jsonify({"error": "Server error"}), 500
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+    
 # --- FILE ENDPOINTS ---
 
 # 3. PUSH (Upload)
