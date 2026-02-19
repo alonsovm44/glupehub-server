@@ -1,0 +1,9 @@
+EXPORT: "myprogram.c"
+#include <stdio>
+
+int main(){
+
+    $$ {
+    print hi
+    }$$
+}
