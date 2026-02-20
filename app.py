@@ -189,6 +189,30 @@ def signup():
             return jsonify({"error": "Server failed to send verification email. Please contact the administrator."}), 500
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+    try:
+        # Generate token and save to pending_users
+        token = ''.join(random.choices(string.digits, k=6))
+        hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+        
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("INSERT INTO pending_users (username, password_hash, email, token) VALUES (%s, %s, %s, %s)", 
+                   (username, hashed.decode('utf-8'), email, token))
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        # Attempt to send email
+        if not send_verification_email(email, token):
+            return jsonify({"error": "Failed to send verification email. Check SMTP settings."}), 500
+
+        return jsonify({"status": "success", "message": "Verification email sent"}), 201
+
+    except Exception as e:
+        # This is the change: return the actual error message 'str(e)'
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
 
 @app.route('/auth/verify', methods=['POST'])
 def verify_signup():
