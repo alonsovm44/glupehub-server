@@ -367,7 +367,7 @@ def search_files():
 def get_meta(file_id):
     file_path = os.path.join(STORAGE_DIR, file_id)
     if not os.path.exists(file_path):
-        return jsonify({"error": "Not found"}), 404
+        return jsonify({"error": "Metadata block not found"}), 404
 
     # Just read the first 20 lines to get META_START ... META_END
     try:
