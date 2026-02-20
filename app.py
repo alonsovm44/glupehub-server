@@ -3,10 +3,6 @@ import bcrypt
 import psycopg2
 import jwt
 import datetime
-import smtplib
-import random
-import string
-from email.mime.text import MIMEText
 from flask import Flask, request, jsonify, send_file, abort
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
@@ -45,13 +41,6 @@ def init_db():
         id SERIAL PRIMARY KEY,
         file_id TEXT NOT NULL,
         tag VARCHAR(50) NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS pending_users (
-        username VARCHAR(50) PRIMARY KEY,
-        password_hash VARCHAR(100) NOT NULL,
-        email VARCHAR(100) NOT NULL,
-        token VARCHAR(6) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     ''')
     conn.commit()
@@ -121,31 +110,6 @@ def get_user_from_token(token):
 
 # --- SIGNUP FLOW ---
 
-def send_verification_email(to_email, token):
-    smtp_server = os.environ.get('SMTP_SERVER')
-    smtp_port = os.environ.get('SMTP_PORT', 587)
-    smtp_user = os.environ.get('SMTP_EMAIL')
-    smtp_password = os.environ.get('SMTP_PASSWORD')
-
-    if not smtp_server or not smtp_user:
-        print(f"[WARN] SMTP not configured. Verification token for {to_email}: {token}")
-        return True
-
-    msg = MIMEText(f"Your verification token is: {token}")
-    msg['Subject'] = "Glupe Verification Token"
-    msg['From'] = smtp_user
-    msg['To'] = to_email
-
-    try:
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.sendmail(smtp_user, [to_email], msg.as_string())
-        return True
-    except Exception as e:
-        print(f"[ERROR] Failed to send email: {e}")
-        return False
-
 @app.route('/auth/check_username', methods=['GET'])
 def check_username():
     username = request.args.get('q', '').strip()
@@ -153,7 +117,7 @@ def check_username():
     
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT 1 FROM users WHERE username = %s UNION SELECT 1 FROM pending_users WHERE username = %s", (username, username))
+    cur.execute("SELECT 1 FROM users WHERE username = %s", (username,))
     exists = cur.fetchone()
     cur.close()
     conn.close()
@@ -165,76 +129,16 @@ def signup():
     data = request.json
     username = data.get('username')
     password = data.get('password')
-    email = data.get('email')
     
-    if not username or not password or not email:
+    if not username or not password:
         return jsonify({"error": "Missing fields"}), 400
 
     hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-    token = ''.join(random.choices(string.digits, k=6))
     
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("DELETE FROM pending_users WHERE username = %s", (username,))
-        cur.execute("INSERT INTO pending_users (username, password_hash, email, token) VALUES (%s, %s, %s, %s)", 
-                    (username, hashed, email, token))
-        conn.commit()
-        cur.close()
-        conn.close()
-        
-        if send_verification_email(email, token):
-            return jsonify({"status": "pending", "message": "Verification token sent"})
-        else:
-            return jsonify({"error": "Server failed to send verification email. Please contact the administrator."}), 500
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    
-    try:
-        # Generate token and save to pending_users
-        token = ''.join(random.choices(string.digits, k=6))
-        hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-        
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("INSERT INTO pending_users (username, password_hash, email, token) VALUES (%s, %s, %s, %s)", 
-                   (username, hashed.decode('utf-8'), email, token))
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        # Attempt to send email
-        if not send_verification_email(email, token):
-            return jsonify({"error": "Failed to send verification email. Check SMTP settings."}), 500
-
-        return jsonify({"status": "success", "message": "Verification email sent"}), 201
-
-    except Exception as e:
-        # This is the change: return the actual error message 'str(e)'
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
-
-
-@app.route('/auth/verify', methods=['POST'])
-def verify_signup():
-    data = request.json
-    username = data.get('username')
-    token = data.get('token')
-    
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT password_hash, email FROM pending_users WHERE username = %s AND token = %s", (username, token))
-    result = cur.fetchone()
-    
-    if not result:
-        cur.close()
-        conn.close()
-        return jsonify({"error": "Invalid token or username"}), 400
-        
-    password_hash, email = result
-    
-    try:
-        cur.execute("INSERT INTO users (username, password_hash, email) VALUES (%s, %s, %s)", (username, password_hash, email))
-        cur.execute("DELETE FROM pending_users WHERE username = %s", (username,))
+        cur.execute("INSERT INTO users (username, password_hash) VALUES (%s, %s)", (username, hashed))
         conn.commit()
         
         user_folder = os.path.join(STORAGE_DIR, secure_filename(username))
@@ -242,11 +146,14 @@ def verify_signup():
         
         cur.close()
         conn.close()
+        
         return jsonify({"status": "success", "message": "User created successfully"})
+    except psycopg2.errors.UniqueViolation:
+        return jsonify({"error": "Username already taken"}), 409
     except Exception as e:
-        cur.close()
-        conn.close()
-        return jsonify({"error": str(e)}), 500
+        # This will catch DB errors or other unexpected issues
+        print(f"[FATAL] An unhandled exception occurred in /auth/signup: {e}")
+        return jsonify({"error": f"An unexpected server error occurred: {str(e)}"}), 500
 
 # REPLACE YOUR login FUNCTION WITH THIS:
 
