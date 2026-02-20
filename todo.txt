@@ -1,0 +1,1 @@
+add user register cmd, only works if no account is loged in, send verification email
