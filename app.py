@@ -183,8 +183,10 @@ def signup():
         cur.close()
         conn.close()
         
-        send_verification_email(email, token)
-        return jsonify({"status": "pending", "message": "Verification token sent"})
+        if send_verification_email(email, token):
+            return jsonify({"status": "pending", "message": "Verification token sent"})
+        else:
+            return jsonify({"error": "Server failed to send verification email. Please contact the administrator."}), 500
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
